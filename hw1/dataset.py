@@ -3,6 +3,7 @@ from typing import List, Dict
 from torch.utils.data import Dataset
 
 from utils import Vocab
+import torch
 
 
 class SeqClsDataset(Dataset):
@@ -32,7 +33,19 @@ class SeqClsDataset(Dataset):
 
     def collate_fn(self, samples: List[Dict]) -> Dict:
         # TODO: implement collate_fn
-        raise NotImplementedError
+        batch = {}
+        batch['text'] = [s['text'].split() for s in samples]
+        batch['len'] = [len(s) for s in batch['text']]
+        batch['text'] = self.vocab.encode_batch(batch['text'], self.max_len)
+        batch['text'] = torch.tensor(batch['text'])
+        batch['id'] = [s['id'] for s in samples]
+        if 'intent' in samples[0].keys():
+            batch['intent'] = [self.label2idx(s['intent']) for s in samples]
+            batch['intent'] = torch.tensor(batch['intent'])
+        else:
+            batch['intent'] = torch.zeros(len(samples), dtype=torch.long)
+
+        return batch
 
     def label2idx(self, label: str):
         return self.label_mapping[label]

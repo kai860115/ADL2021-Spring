@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Dict
 
 import torch
+from torch.utils.data import DataLoader
 
 from dataset import SeqClsDataset
 from model import SeqClassifier
@@ -21,6 +22,7 @@ def main(args):
     data = json.loads(args.test_file.read_text())
     dataset = SeqClsDataset(data, vocab, intent2idx, args.max_len)
     # TODO: crecate DataLoader for test dataset
+    test_loader = DataLoader(dataset, args.batch_size, shuffle=False, collate_fn=dataset.collate_fn)
 
     embeddings = torch.load(args.cache_dir / "embeddings.pt")
 
@@ -31,15 +33,31 @@ def main(args):
         args.dropout,
         args.bidirectional,
         dataset.num_classes,
-    )
+    ).to(args.device)
     model.eval()
 
     ckpt = torch.load(args.ckpt_path)
     # load weights into model
+    model.load_state_dict(ckpt)
+
+    ids = []
+    labels = []
 
     # TODO: predict dataset
+    for batch in test_loader:
+        batch['text'] = batch['text'].to(args.device)
+        batch['intent'] = batch['intent'].to(args.device)
+        output_dict = model(batch)
+        ids = ids + batch['id']
+        labels = labels + output_dict['pred_labels'].tolist()
 
     # TODO: write prediction to file (args.pred_file)
+    if args.pred_file.parent:
+        args.pred_file.parent.mkdir(parents=True, exist_ok=True)
+    with open(args.pred_file, 'w') as f:
+        f.write('id,intent\n')
+        for i, la in zip(ids, labels):
+            f.write("%s,%s\n" %(i, dataset.idx2label(la)))
 
 
 def parse_args() -> Namespace:
@@ -48,7 +66,7 @@ def parse_args() -> Namespace:
         "--test_file",
         type=Path,
         help="Path to the test file.",
-        required=True
+        default="./data/intent/test.json"
     )
     parser.add_argument(
         "--cache_dir",
@@ -71,13 +89,13 @@ def parse_args() -> Namespace:
     parser.add_argument("--hidden_size", type=int, default=512)
     parser.add_argument("--num_layers", type=int, default=2)
     parser.add_argument("--dropout", type=float, default=0.1)
-    parser.add_argument("--bidirectional", type=bool, default=True)
+    parser.add_argument("--bidirectional", type=bool, default=False)
 
     # data loader
     parser.add_argument("--batch_size", type=int, default=128)
 
     parser.add_argument(
-        "--device", type=torch.device, help="cpu, cuda, cuda:0, cuda:1", default="cpu"
+        "--device", type=torch.device, help="cpu, cuda, cuda:0, cuda:1", default="cuda"
     )
     args = parser.parse_args()
     return args
