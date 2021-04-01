@@ -1,0 +1,1 @@
+wget https://www.dropbox.com/s/q4spdguu01e36xf/adl_hw0.pth?dl=1 -O adl_hw0.pth
