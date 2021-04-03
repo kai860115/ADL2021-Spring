@@ -11,9 +11,9 @@ from torch.utils.data import DataLoader
 from tqdm import trange, tqdm
 import numpy as np
 
-from dataset import SeqClsDataset
-from utils import Vocab, AverageMeter, ClsMetrics as Metrics
-from model import SeqClassifier
+from dataset import SeqTagDataset
+from utils import Vocab, AverageMeter, TagMetrics as Metrics
+from model import SeqTagging
 
 TRAIN = "train"
 DEV = "eval"
@@ -26,13 +26,13 @@ def train_one_epoch(model, train_loader, optimizer, scheduler, scheduler_type, d
 
     bar = tqdm(train_loader)
     for i, batch in enumerate(bar):
-        batch['text'] = batch['text'].to(device)
-        batch['intent'] = batch['intent'].to(device)
+        batch['tokens'] = batch['tokens'].to(device)
+        batch['tags'] = [t.to(device) for t in batch['tags']]
         optimizer.zero_grad()
 
         output_dict = model(batch)
-        am.update(output_dict['loss'], n=batch['intent'].size(0))
-        m.update(batch['intent'].detach().cpu(), output_dict['pred_labels'].detach().cpu())
+        am.update(output_dict['loss'], n=batch['tokens'].size(0))
+        m.update([gt.detach().cpu() for gt in batch['tags']], [p.detach().cpu() for p in output_dict['pred_labels']])
         bar.set_postfix(loss=output_dict['loss'].item(), iter=i, lr=optimizer.param_groups[0]['lr'])
 
         output_dict['loss'].backward()
@@ -41,8 +41,8 @@ def train_one_epoch(model, train_loader, optimizer, scheduler, scheduler_type, d
             scheduler.step()
 
     m.cal()
-    print('Train Loss: {:6.4f} Acc: {}'.format(am.avg, m.acc))
-    return am.avg, m.acc
+    print('Train Loss: {:6.4f} Joint Acc: {} ({}/{}) Token Acc: {} ({}/{})'.format(am.avg, m.joi_acc, m.joi_cor, m.joi_n, m.tok_acc, m.tok_cor, m.tok_n))
+    return am.avg, m.joi_acc, m.tok_acc
 
 @torch.no_grad() 
 def validation(model, val_loader, device):
@@ -51,16 +51,17 @@ def validation(model, val_loader, device):
     m = Metrics()
 
     for batch in val_loader:
-        batch['text'] = batch['text'].to(device)
-        batch['intent'] = batch['intent'].to(device)
+        batch['tokens'] = batch['tokens'].to(device)
+        batch['tags'] = [t.to(device) for t in batch['tags']]
 
         output_dict = model(batch)
-        am.update(output_dict['loss'], n=batch['intent'].size(0))
-        m.update(batch['intent'].detach().cpu(), output_dict['pred_labels'].detach().cpu())
+        # print(output_dict['pred_labels'])
+        am.update(output_dict['loss'], n=batch['tokens'].size(0))
+        m.update([gt.detach().cpu() for gt in batch['tags']], [p.detach().cpu() for p in output_dict['pred_labels']])
     
     m.cal()
-    print('Val Loss: {:6.4f} Acc: {}'.format(am.avg, m.acc))
-    return am.avg, m.acc
+    print('Val Loss: {:6.4f} Joint Acc: {} ({}/{}) Token Acc: {} ({}/{})'.format(am.avg, m.joi_acc, m.joi_cor, m.joi_n, m.tok_acc, m.tok_cor, m.tok_n))
+    return am.avg, m.joi_acc, m.tok_acc
 
 def save_checkpoint(model, ckp_dir, epoch):
     ckp_path = ckp_dir / '{}-model.pth'.format(epoch + 1)
@@ -78,38 +79,45 @@ def main(args):
 
     if args.use_wandb:
         import wandb
-        wandb.init(project='ADL_hw1_intent', config=args)
+        wandb.init(project='ADL_hw1_slot', config=args)
 
     with open(args.cache_dir / "vocab.pkl", "rb") as f:
         vocab: Vocab = pickle.load(f)
 
-    ckpt_dir = args.ckpt_dir / f"{args.name}_{args.seed}"
+    ckpt_dir = args.ckpt_dir / f'{args.name}_{args.seed}'
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
-    intent_idx_path = args.cache_dir / "intent2idx.json"
-    intent2idx: Dict[str, int] = json.loads(intent_idx_path.read_text())
+    tag_idx_path = args.cache_dir / "tag2idx.json"
+    tag2idx: Dict[str, int] = json.loads(tag_idx_path.read_text())
 
     data_paths = {split: args.data_dir / f"{split}.json" for split in SPLITS}
     data = {split: json.loads(path.read_text()) for split, path in data_paths.items()}
-    datasets: Dict[str, SeqClsDataset] = {
-        split: SeqClsDataset(split_data, vocab, intent2idx, args.max_len)
+    datasets: Dict[str, SeqTagDataset] = {
+        split: SeqTagDataset(split_data, vocab, tag2idx, args.max_len)
         for split, split_data in data.items()
     }
     # TODO: create DataLoader for train / dev datasets
     dataloaders: Dict[str, DataLoader] = {
         split: DataLoader(split_dataset, args.batch_size, shuffle=True, collate_fn=split_dataset.collate_fn) for split, split_dataset in datasets.items()
     }
+    print(datasets[TRAIN].count)
+    beta = 0.0
+    weight = (1 - beta) / (1 - torch.pow(beta, datasets[TRAIN].count.float()))
+    weight = weight / max(weight)
+    weight = weight.to(args.device)
+    # weight = None
+    print(weight)
 
     embeddings = torch.load(args.cache_dir / "embeddings.pt")
     # TODO: init model and move model to target device(cpu / gpu)
-    model = SeqClassifier(embeddings, args.hidden_size, args.num_layers, args.dropout, args.bidirectional, datasets[TRAIN].num_classes, args.att, args.att_unit, args.att_hops).to(args.device)
+    model = SeqTagging(embeddings, args.num_cnn_layers, args.hidden_size, args.num_rnn_layers, args.dropout, args.bidirectional, datasets[TRAIN].num_classes, weight).to(args.device)
 
     # TODO: init optimizer
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     if args.scheduler_type == 'onecycle':
-        scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=args.lr, epochs=args.num_epoch, steps_per_epoch=len(dataloaders[TRAIN]), pct_start=0.1)
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=args.lr, epochs=args.num_epoch, steps_per_epoch=len(dataloaders[TRAIN]), pct_start=0.5)
     elif args.scheduler_type == 'step':
-        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.step_size, gamma=0.5)
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.step_size)
     elif args.scheduler_type == 'reduce':
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=args.patience)
     else:
@@ -119,26 +127,28 @@ def main(args):
     for epoch in range(args.num_epoch):
         # TODO: Training loop - iterate over train dataloader and update model weights
         print("EPOCH: %d" % (epoch))
-        train_loss, train_acc = train_one_epoch(model, dataloaders[TRAIN], optimizer, scheduler, args.scheduler_type, args.device)
+        train_loss, train_joi_acc, train_tok_acc = train_one_epoch(model, dataloaders[TRAIN], optimizer, scheduler, args.scheduler_type, args.device)
         # TODO: Evaluation loop - calculate accuracy and save model weights.
-        val_loss, val_acc = validation(model, dataloaders[DEV], args.device)
+        val_loss, val_joi_acc, val_tok_acc = validation(model, dataloaders[DEV], args.device)
 
         if args.scheduler_type == "step":
             scheduler.step()
         elif args.scheduler_type == "reduce":
             scheduler.step(val_loss)
 
-        if val_acc > best_acc:
-            best_acc = val_acc
+        if val_joi_acc > best_acc:
+            best_acc = val_joi_acc
             save_checkpoint(model, ckpt_dir, epoch)
             if args.use_wandb:
-                wandb.run.summary["best_acc"] = val_acc
+                wandb.run.summary["best_joi_acc"] = val_joi_acc
         
         if args.use_wandb:
             wandb.log({"train_loss": train_loss,
-                        "train_acc": train_acc,
+                        "train_joi_acc": train_joi_acc,
+                        "train_tok_acc": train_tok_acc,
                         "val_loss": val_loss,
-                        "val_acc": val_acc,
+                        "val_joi_acc": val_joi_acc,
+                        "val_tok_acc": val_tok_acc,
                         'lr': optimizer.param_groups[0]['lr']
                         }, step=epoch)
 
@@ -152,43 +162,41 @@ def parse_args() -> Namespace:
         "--data_dir",
         type=Path,
         help="Directory to the dataset.",
-        default="./data/intent/",
+        default="./data/slot/",
     )
     parser.add_argument(
         "--cache_dir",
         type=Path,
         help="Directory to the preprocessed caches.",
-        default="./cache/intent/",
+        default="./cache/slot/",
     )
     parser.add_argument(
         "--ckpt_dir",
         type=Path,
         help="Directory to save the model file.",
-        default="./ckpt/intent/",
+        default="./ckpt/slot/",
     )
     parser.add_argument('--name', default='', type=str, help='Name for saving model')
 
     # data
-    parser.add_argument("--max_len", type=int, default=128)
+    parser.add_argument("--max_len", type=int, default=48)
 
     # model
-    parser.add_argument("--hidden_size", type=int, default=256)
-    parser.add_argument("--num_layers", type=int, default=2)
+    parser.add_argument("--hidden_size", type=int, default=512)
+    parser.add_argument("--num_cnn_layers", type=int, default=1)
+    parser.add_argument("--num_rnn_layers", type=int, default=2)
     parser.add_argument("--dropout", type=float, default=0.1)
     parser.add_argument("--bidirectional", type=bool, default=True)
-    parser.add_argument("--att", type=bool, default=True)
-    parser.add_argument("--att_unit", type=int, default=64)
-    parser.add_argument("--att_hops", type=int, default=16)
 
     # optimizer
-    parser.add_argument("--lr", type=float, default=5e-4)
+    parser.add_argument("--lr", type=float, default=1e-4)
 
     # scheduler
     parser.add_argument('--scheduler_type', default=None, type=str,
                         choices=['reduce', 'step', 'onecycle', None],
                         help="type of scheduler (ReduceLROnPlateau, stepLR, OneCycleLR)")
-    parser.add_argument("--step_size", type=int, default=15)
-    parser.add_argument("--patience", type=int, default=5)
+    parser.add_argument("--step_size", type=int, default=30)
+    parser.add_argument("--patience", type=int, default=10)
 
     # data loader
     parser.add_argument("--batch_size", type=int, default=64)

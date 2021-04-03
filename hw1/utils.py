@@ -1,4 +1,5 @@
 from typing import Iterable, List
+import torch
 
 
 class Vocab:
@@ -60,7 +61,7 @@ class AverageMeter(object):
         self.count += n
         self.avg = self.sum / self.count
 
-class Metrics(object):
+class ClsMetrics(object):
     def __init__(self, eps = 1e-8):
         self.eps = eps
         self.reset()
@@ -76,3 +77,27 @@ class Metrics(object):
     
     def cal(self):
         self.acc = self.correct / (self.n + self.eps)
+        
+class TagMetrics(object):
+    def __init__(self, eps=1e-8):
+        self.eps = eps
+        self.reset()
+
+    def reset(self):
+        self.tok_cor = 0
+        self.joi_cor = 0
+        self.tok_n = 0
+        self.joi_n = 0
+
+    def update(self, target, pred):
+        l = len(target)
+        target_cat = torch.cat(target)
+        pred_cat = torch.cat(pred)
+        self.tok_cor += pred_cat.eq(target_cat.view_as(pred_cat)).sum().item()
+        self.joi_cor += torch.tensor([int(t.tolist() == p.tolist()) for t, p in zip(target, pred)]).sum().item()
+        self.tok_n += target_cat.size(0)
+        self.joi_n += l
+    
+    def cal(self):
+        self.tok_acc = self.tok_cor / (self.tok_n + self.eps)
+        self.joi_acc = self.joi_cor / (self.joi_n + self.eps)

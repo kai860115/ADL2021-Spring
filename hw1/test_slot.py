@@ -9,8 +9,8 @@ import torch
 from torch.utils.data import DataLoader
 import numpy as np
 
-from dataset import SeqClsDataset
-from model import SeqClassifier
+from dataset import SeqTagDataset
+from model import SeqTagging
 from utils import Vocab
 
 
@@ -21,29 +21,27 @@ def main(args):
     with open(args.cache_dir / "vocab.pkl", "rb") as f:
         vocab: Vocab = pickle.load(f)
 
-    intent_idx_path = args.cache_dir / "intent2idx.json"
-    intent2idx: Dict[str, int] = json.loads(intent_idx_path.read_text())
+    tag_idx_path = args.cache_dir / "tag2idx.json"
+    tag2idx: Dict[str, int] = json.loads(tag_idx_path.read_text())
 
     data = json.loads(args.test_file.read_text())
-    dataset = SeqClsDataset(data, vocab, intent2idx, args.max_len)
+    dataset = SeqTagDataset(data, vocab, tag2idx, args.max_len)
     # TODO: crecate DataLoader for test dataset
     test_loader = DataLoader(dataset, args.batch_size, shuffle=False, collate_fn=dataset.collate_fn)
 
     embeddings = torch.load(args.cache_dir / "embeddings.pt")
 
-    model = SeqClassifier(
+    model = SeqTagging(
         embeddings,
+        args.num_cnn_layers,
         args.hidden_size,
-        args.num_layers,
+        args.num_rnn_layers,
         args.dropout,
         args.bidirectional,
         dataset.num_classes,
-        args.att,
-        args.att_unit,
-        args.att_hops
     ).to(args.device)
     model.eval()
-    print(model)
+
     ckpt = torch.load(args.ckpt_path)
     # load weights into model
     model.load_state_dict(ckpt)
@@ -53,19 +51,24 @@ def main(args):
 
     # TODO: predict dataset
     for batch in test_loader:
-        batch['text'] = batch['text'].to(args.device)
-        batch['intent'] = batch['intent'].to(args.device)
+        batch['tokens'] = batch['tokens'].to(args.device)
+        batch['tags'] = [t.to(args.device) for t in batch['tags']]
         output_dict = model(batch)
         ids = ids + batch['id']
-        labels = labels + output_dict['pred_labels'].tolist()
+        labels = labels + [p.tolist() for p in  output_dict['pred_labels']] 
 
     # TODO: write prediction to file (args.pred_file)
     if args.pred_file.parent:
         args.pred_file.parent.mkdir(parents=True, exist_ok=True)
     with open(args.pred_file, 'w') as f:
-        f.write('id,intent\n')
+        f.write('id,tags\n')
         for i, la in zip(ids, labels):
-            f.write("%s,%s\n" %(i, dataset.idx2label(la)))
+            f.write("%s," % (i))
+            for idx, t in enumerate(la):
+                if idx < len(la) - 1:
+                    f.write("%s " % (dataset.idx2label(t)))
+                else:
+                    f.write("%s\n" % (dataset.idx2label(t)))
 
 
 def parse_args() -> Namespace:
@@ -74,13 +77,13 @@ def parse_args() -> Namespace:
         "--test_file",
         type=Path,
         help="Path to the test file.",
-        default="./data/intent/test.json"
+        default="./data/slot/test.json"
     )
     parser.add_argument(
         "--cache_dir",
         type=Path,
         help="Directory to the preprocessed caches.",
-        default="./cache/intent/",
+        default="./cache/slot/",
     )
     parser.add_argument(
         "--ckpt_path",
@@ -88,19 +91,17 @@ def parse_args() -> Namespace:
         help="Path to model checkpoint.",
         required=True
     )
-    parser.add_argument("--pred_file", type=Path, default="pred.intent.csv")
+    parser.add_argument("--pred_file", type=Path, default="pred.slot.csv")
 
     # data
     parser.add_argument("--max_len", type=int, default=128)
 
     # model
-    parser.add_argument("--hidden_size", type=int, default=256)
-    parser.add_argument("--num_layers", type=int, default=2)
+    parser.add_argument("--hidden_size", type=int, default=512)
+    parser.add_argument("--num_cnn_layers", type=int, default=1)
+    parser.add_argument("--num_rnn_layers", type=int, default=2)
     parser.add_argument("--dropout", type=float, default=0.1)
     parser.add_argument("--bidirectional", type=bool, default=True)
-    parser.add_argument("--att", type=bool, default=True)
-    parser.add_argument("--att_unit", type=int, default=64)
-    parser.add_argument("--att_hops", type=int, default=16)
 
     # data loader
     parser.add_argument("--batch_size", type=int, default=128)
