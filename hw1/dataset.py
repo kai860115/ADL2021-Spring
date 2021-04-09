@@ -2,7 +2,7 @@ from typing import List, Dict
 
 from torch.utils.data import Dataset
 
-from utils import Vocab
+from utils import Vocab, pad_to_len
 import torch
 
 
@@ -33,6 +33,7 @@ class SeqClsDataset(Dataset):
 
     def collate_fn(self, samples: List[Dict]) -> Dict:
         # TODO: implement collate_fn
+        samples.sort(key=lambda x: len(x['text'].split()), reverse=True)
         batch = {}
         batch['text'] = [s['text'].split() for s in samples]
         batch['len'] = torch.tensor([min(len(s), self.max_len) for s in batch['text']]) 
@@ -90,6 +91,7 @@ class SeqTagDataset(Dataset):
 
     def collate_fn(self, samples: List[Dict]) -> Dict:
         # TODO: implement collate_fn
+        samples.sort(key=lambda x: len(x['tokens']), reverse=True)
         batch = {}
         batch['tokens'] = [s['tokens'] for s in samples]
         batch['len'] = torch.tensor([min(len(s), self.max_len) for s in batch['tokens']])
@@ -97,9 +99,12 @@ class SeqTagDataset(Dataset):
         batch['tokens'] = torch.tensor(batch['tokens'])
         batch['id'] = [s['id'] for s in samples]
         if 'tags' in samples[0].keys():
-            batch['tags'] = [torch.tensor([self.label2idx(t) for t in s['tags']]) for s in samples]
+            batch['tags'] = [[self.label2idx(t) for t in s['tags']] for s in samples]
+            batch['tags'] = pad_to_len(batch['tags'], self.max_len, 0)
         else:
-            batch['tags'] = [torch.zeros(len(s['tokens']), dtype=torch.long) for s in samples]
+            batch['tags'] = [[0] * self.max_len] * len(samples)
+        batch['tags'] = torch.tensor(batch['tags'])
+        batch['mask'] = batch['tokens'].gt(0).float()
 
         return batch
 

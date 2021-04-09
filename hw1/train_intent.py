@@ -19,48 +19,69 @@ TRAIN = "train"
 DEV = "eval"
 SPLITS = [TRAIN, DEV]
 
-def train_one_epoch(model, train_loader, optimizer, scheduler, scheduler_type, device):
+def train_one_epoch(args, model, train_loader, optimizer, scheduler):
     model.train()
-    am = AverageMeter()
+    am_ce = AverageMeter()
+    am_aux = AverageMeter()
+    am_p = AverageMeter()
     m = Metrics()
 
     bar = tqdm(train_loader)
     for i, batch in enumerate(bar):
-        batch['text'] = batch['text'].to(device)
-        batch['intent'] = batch['intent'].to(device)
-        optimizer.zero_grad()
+        batch['text'] = batch['text'].to(args.device)
+        batch['intent'] = batch['intent'].to(args.device)
 
+        optimizer.zero_grad()
         output_dict = model(batch)
-        am.update(output_dict['loss'], n=batch['intent'].size(0))
-        m.update(batch['intent'].detach().cpu(), output_dict['pred_labels'].detach().cpu())
+
         bar.set_postfix(loss=output_dict['loss'].item(), iter=i, lr=optimizer.param_groups[0]['lr'])
 
-        output_dict['loss'].backward()
+        am_ce.update(output_dict['loss'], n=batch['intent'].size(0))
+        m.update(batch['intent'].detach().cpu(), output_dict['pred_labels'].detach().cpu())
+        loss = output_dict['loss']
+        if args.aux_loss:
+            am_aux.update(output_dict['aux_loss'], n=batch['intent'].size(0))
+            loss += output_dict['aux_loss']
+        if args.att:
+            am_p.update(output_dict['penalization'], n=batch['intent'].size(0))
+            loss += args.penal_coeff * output_dict['penalization']
+
+        loss.backward()
+
+        if args.grad_clip > 0.0:
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.grad_clip)
+
         optimizer.step()
-        if scheduler_type == "onecycle":
+        if args.scheduler_type == "onecycle":
             scheduler.step()
 
     m.cal()
-    print('Train Loss: {:6.4f} Acc: {}'.format(am.avg, m.acc))
-    return am.avg, m.acc
+    print('Train Loss: {:6.4f}\t Aux: {:6.4f}\t Penalization: {:6.4f}\t Acc: {:6.4f}'.format(am_ce.avg, am_aux.avg, am_p.avg, m.acc))
+    return am_ce.avg, am_aux.avg, am_p.avg, m.acc
 
 @torch.no_grad() 
-def validation(model, val_loader, device):
+def validation(args, model, val_loader):
     model.eval()
-    am = AverageMeter()
+    am_ce = AverageMeter()
+    am_aux = AverageMeter()
+    am_p = AverageMeter()
     m = Metrics()
 
     for batch in val_loader:
-        batch['text'] = batch['text'].to(device)
-        batch['intent'] = batch['intent'].to(device)
+        batch['text'] = batch['text'].to(args.device)
+        batch['intent'] = batch['intent'].to(args.device)
 
         output_dict = model(batch)
-        am.update(output_dict['loss'], n=batch['intent'].size(0))
+        am_ce.update(output_dict['loss'], n=batch['intent'].size(0))
+        if args.aux_loss:
+            am_aux.update(output_dict['aux_loss'], n=batch['intent'].size(0))
+        if args.att:
+            am_p.update(output_dict['penalization'], n=batch['intent'].size(0))
         m.update(batch['intent'].detach().cpu(), output_dict['pred_labels'].detach().cpu())
     
     m.cal()
-    print('Val Loss: {:6.4f} Acc: {}'.format(am.avg, m.acc))
-    return am.avg, m.acc
+    print('Val Loss: {:6.4f}\t Aux: {:6.4f}\t Penalization: {:6.4f}\t Acc: {:6.4f}\t'.format(am_ce.avg, am_aux.avg, am_p.avg, m.acc))
+    return am_ce.avg, am_aux.avg, am_p.avg, m.acc
 
 def save_checkpoint(model, ckp_dir, epoch):
     ckp_path = ckp_dir / '{}-model.pth'.format(epoch + 1)
@@ -95,16 +116,17 @@ def main(args):
         split: SeqClsDataset(split_data, vocab, intent2idx, args.max_len)
         for split, split_data in data.items()
     }
-    # TODO: create DataLoader for train / dev datasets
+    # create DataLoader for train / dev datasets
     dataloaders: Dict[str, DataLoader] = {
         split: DataLoader(split_dataset, args.batch_size, shuffle=True, collate_fn=split_dataset.collate_fn) for split, split_dataset in datasets.items()
     }
 
     embeddings = torch.load(args.cache_dir / "embeddings.pt")
-    # TODO: init model and move model to target device(cpu / gpu)
-    model = SeqClassifier(embeddings, args.hidden_size, args.num_layers, args.dropout, args.bidirectional, datasets[TRAIN].num_classes, args.att, args.att_unit, args.att_hops).to(args.device)
+    # init model and move model to target device(cpu / gpu)
+    print(args)
+    model = SeqClassifier(embeddings, args.hidden_size, args.num_layers, args.dropout, args.bidirectional, datasets[TRAIN].num_classes, args.att, args.att_unit, args.att_hops, args.aux_loss).to(args.device)
 
-    # TODO: init optimizer
+    # init optimizer
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     if args.scheduler_type == 'onecycle':
         scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=args.lr, epochs=args.num_epoch, steps_per_epoch=len(dataloaders[TRAIN]), pct_start=0.1)
@@ -117,11 +139,11 @@ def main(args):
     best_acc = 0.0
 
     for epoch in range(args.num_epoch):
-        # TODO: Training loop - iterate over train dataloader and update model weights
+        # Training loop - iterate over train dataloader and update model weights
         print("EPOCH: %d" % (epoch))
-        train_loss, train_acc = train_one_epoch(model, dataloaders[TRAIN], optimizer, scheduler, args.scheduler_type, args.device)
-        # TODO: Evaluation loop - calculate accuracy and save model weights.
-        val_loss, val_acc = validation(model, dataloaders[DEV], args.device)
+        train_loss, train_aux, train_p, train_acc = train_one_epoch(args, model, dataloaders[TRAIN], optimizer, scheduler)
+        # Evaluation loop - calculate accuracy and save model weights.
+        val_loss, val_aux, val_p, val_acc = validation(args, model, dataloaders[DEV])
 
         if args.scheduler_type == "step":
             scheduler.step()
@@ -136,14 +158,15 @@ def main(args):
         
         if args.use_wandb:
             wandb.log({"train_loss": train_loss,
+                        "train_aux": train_aux,
+                        "train_p": train_p,
                         "train_acc": train_acc,
                         "val_loss": val_loss,
+                        "val_aux": val_aux,
+                        "val_p": val_p,
                         "val_acc": val_acc,
                         'lr': optimizer.param_groups[0]['lr']
                         }, step=epoch)
-
-
-    # TODO: Inference on test set
 
 
 def parse_args() -> Namespace:
@@ -166,7 +189,7 @@ def parse_args() -> Namespace:
         help="Directory to save the model file.",
         default="./ckpt/intent/",
     )
-    parser.add_argument('--name', default='', type=str, help='Name for saving model')
+    parser.add_argument('--name', default='test', type=str, help='Name for saving model')
 
     # data
     parser.add_argument("--max_len", type=int, default=128)
@@ -174,14 +197,18 @@ def parse_args() -> Namespace:
     # model
     parser.add_argument("--hidden_size", type=int, default=256)
     parser.add_argument("--num_layers", type=int, default=2)
-    parser.add_argument("--dropout", type=float, default=0.1)
-    parser.add_argument("--bidirectional", type=bool, default=True)
-    parser.add_argument("--att", type=bool, default=True)
-    parser.add_argument("--att_unit", type=int, default=64)
-    parser.add_argument("--att_hops", type=int, default=16)
+    parser.add_argument("--dropout", type=float, default=0.2)
+    parser.add_argument("--bidirectional", action="store_true")
+    parser.add_argument("--att", action="store_true")
+    parser.add_argument("--att_unit", type=int, default=128)
+    parser.add_argument("--att_hops", type=int, default=32)
+    parser.add_argument("--penal_coeff", type=float, default=1.)
+    parser.add_argument("--aux_loss", action="store_true")
 
     # optimizer
-    parser.add_argument("--lr", type=float, default=5e-4)
+    parser.add_argument("--lr", type=float, default=1e-3)
+    
+    parser.add_argument('--grad_clip', default = 5., type=float, help='max gradient norm')
 
     # scheduler
     parser.add_argument('--scheduler_type', default=None, type=str,
@@ -191,7 +218,7 @@ def parse_args() -> Namespace:
     parser.add_argument("--patience", type=int, default=5)
 
     # data loader
-    parser.add_argument("--batch_size", type=int, default=64)
+    parser.add_argument("--batch_size", type=int, default=128)
 
     # training
     parser.add_argument(

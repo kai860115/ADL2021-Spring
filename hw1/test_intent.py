@@ -18,6 +18,7 @@ def main(args):
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
     random.seed(args.seed)
+
     with open(args.cache_dir / "vocab.pkl", "rb") as f:
         vocab: Vocab = pickle.load(f)
 
@@ -26,7 +27,7 @@ def main(args):
 
     data = json.loads(args.test_file.read_text())
     dataset = SeqClsDataset(data, vocab, intent2idx, args.max_len)
-    # TODO: crecate DataLoader for test dataset
+    # crecate DataLoader for test dataset
     test_loader = DataLoader(dataset, args.batch_size, shuffle=False, collate_fn=dataset.collate_fn)
 
     embeddings = torch.load(args.cache_dir / "embeddings.pt")
@@ -43,7 +44,7 @@ def main(args):
         args.att_hops
     ).to(args.device)
     model.eval()
-    print(model)
+    
     ckpt = torch.load(args.ckpt_path)
     # load weights into model
     model.load_state_dict(ckpt)
@@ -51,7 +52,7 @@ def main(args):
     ids = []
     labels = []
 
-    # TODO: predict dataset
+    # predict dataset
     for batch in test_loader:
         batch['text'] = batch['text'].to(args.device)
         batch['intent'] = batch['intent'].to(args.device)
@@ -59,7 +60,7 @@ def main(args):
         ids = ids + batch['id']
         labels = labels + output_dict['pred_labels'].tolist()
 
-    # TODO: write prediction to file (args.pred_file)
+    # write prediction to file (args.pred_file)
     if args.pred_file.parent:
         args.pred_file.parent.mkdir(parents=True, exist_ok=True)
     with open(args.pred_file, 'w') as f:
@@ -96,11 +97,11 @@ def parse_args() -> Namespace:
     # model
     parser.add_argument("--hidden_size", type=int, default=256)
     parser.add_argument("--num_layers", type=int, default=2)
-    parser.add_argument("--dropout", type=float, default=0.1)
-    parser.add_argument("--bidirectional", type=bool, default=True)
-    parser.add_argument("--att", type=bool, default=True)
-    parser.add_argument("--att_unit", type=int, default=64)
-    parser.add_argument("--att_hops", type=int, default=16)
+    parser.add_argument("--dropout", type=float, default=0.2)
+    parser.add_argument("--bidirectional", action="store_true")
+    parser.add_argument("--att", action="store_true")
+    parser.add_argument("--att_unit", type=int, default=128)
+    parser.add_argument("--att_hops", type=int, default=32)
 
     # data loader
     parser.add_argument("--batch_size", type=int, default=128)
@@ -115,4 +116,5 @@ def parse_args() -> Namespace:
 
 if __name__ == "__main__":
     args = parse_args()
+    print(args)
     main(args)

@@ -19,48 +19,54 @@ TRAIN = "train"
 DEV = "eval"
 SPLITS = [TRAIN, DEV]
 
-def train_one_epoch(model, train_loader, optimizer, scheduler, scheduler_type, device):
+def train_one_epoch(args, model, train_loader, optimizer, scheduler):
     model.train()
     am = AverageMeter()
     m = Metrics()
 
     bar = tqdm(train_loader)
     for i, batch in enumerate(bar):
-        batch['tokens'] = batch['tokens'].to(device)
-        batch['tags'] = [t.to(device) for t in batch['tags']]
-        optimizer.zero_grad()
+        batch['tokens'] = batch['tokens'].to(args.device)
+        batch['tags'] = batch['tags'].to(args.device)
+        batch['mask'] = batch['mask'].to(args.device)
 
         output_dict = model(batch)
+
         am.update(output_dict['loss'], n=batch['tokens'].size(0))
-        m.update([gt.detach().cpu() for gt in batch['tags']], [p.detach().cpu() for p in output_dict['pred_labels']])
+        m.update(batch['tags'].cpu(), output_dict['pred_labels'].cpu(), batch['mask'].cpu())
         bar.set_postfix(loss=output_dict['loss'].item(), iter=i, lr=optimizer.param_groups[0]['lr'])
 
+        optimizer.zero_grad()
         output_dict['loss'].backward()
+        if args.grad_clip > 0.0:
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.grad_clip)
         optimizer.step()
-        if scheduler_type == "onecycle":
+
+        if args.scheduler_type == "onecycle":
             scheduler.step()
 
     m.cal()
-    print('Train Loss: {:6.4f} Joint Acc: {} ({}/{}) Token Acc: {} ({}/{})'.format(am.avg, m.joi_acc, m.joi_cor, m.joi_n, m.tok_acc, m.tok_cor, m.tok_n))
+    print('Train Loss: {:6.4f} Joint Acc: {:6.4f} ({}/{}) Token Acc: {:6.4f} ({}/{})'.format(am.avg, m.joi_acc, m.joi_cor, m.joi_n, m.tok_acc, m.tok_cor, m.tok_n))
     return am.avg, m.joi_acc, m.tok_acc
 
 @torch.no_grad() 
-def validation(model, val_loader, device):
+def validation(args, model, val_loader):
     model.eval()
     am = AverageMeter()
     m = Metrics()
 
     for batch in val_loader:
-        batch['tokens'] = batch['tokens'].to(device)
-        batch['tags'] = [t.to(device) for t in batch['tags']]
+        batch['tokens'] = batch['tokens'].to(args.device)
+        batch['tags'] = batch['tags'].to(args.device)
+        batch['mask'] = batch['mask'].to(args.device)
 
         output_dict = model(batch)
-        # print(output_dict['pred_labels'])
+        
         am.update(output_dict['loss'], n=batch['tokens'].size(0))
-        m.update([gt.detach().cpu() for gt in batch['tags']], [p.detach().cpu() for p in output_dict['pred_labels']])
+        m.update(batch['tags'].cpu(), output_dict['pred_labels'].cpu(), batch['mask'].cpu())
     
     m.cal()
-    print('Val Loss: {:6.4f} Joint Acc: {} ({}/{}) Token Acc: {} ({}/{})'.format(am.avg, m.joi_acc, m.joi_cor, m.joi_n, m.tok_acc, m.tok_cor, m.tok_n))
+    print('Val Loss: {:6.4f} Joint Acc: {:6.4f} ({}/{}) Token Acc: {:6.4f} ({}/{})'.format(am.avg, m.joi_acc, m.joi_cor, m.joi_n, m.tok_acc, m.tok_cor, m.tok_n))
     return am.avg, m.joi_acc, m.tok_acc
 
 def save_checkpoint(model, ckp_dir, epoch):
@@ -96,40 +102,40 @@ def main(args):
         split: SeqTagDataset(split_data, vocab, tag2idx, args.max_len)
         for split, split_data in data.items()
     }
-    # TODO: create DataLoader for train / dev datasets
+
+    # create DataLoader for train / dev datasets
     dataloaders: Dict[str, DataLoader] = {
         split: DataLoader(split_dataset, args.batch_size, shuffle=True, collate_fn=split_dataset.collate_fn) for split, split_dataset in datasets.items()
     }
-    print(datasets[TRAIN].count)
-    beta = 0.0
-    weight = (1 - beta) / (1 - torch.pow(beta, datasets[TRAIN].count.float()))
-    weight = weight / max(weight)
-    weight = weight.to(args.device)
-    # weight = None
-    print(weight)
 
     embeddings = torch.load(args.cache_dir / "embeddings.pt")
-    # TODO: init model and move model to target device(cpu / gpu)
-    model = SeqTagging(embeddings, args.num_cnn_layers, args.hidden_size, args.num_rnn_layers, args.dropout, args.bidirectional, datasets[TRAIN].num_classes, weight).to(args.device)
 
-    # TODO: init optimizer
+    # init model and move model to target device(cpu / gpu)
+    model = SeqTagging(embeddings, args.num_cnn_layers, args.hidden_size, args.num_rnn_layers, args.dropout, args.bidirectional, datasets[TRAIN].num_classes, args.no_crf).to(args.device)
+
+    # init optimizer
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+
+    # scheduler
     if args.scheduler_type == 'onecycle':
         scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=args.lr, epochs=args.num_epoch, steps_per_epoch=len(dataloaders[TRAIN]), pct_start=0.5)
     elif args.scheduler_type == 'step':
-        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.step_size)
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.step_size, gamma=0.5)
     elif args.scheduler_type == 'reduce':
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=args.patience)
     else:
         scheduler = None
-    best_acc = 0.0
 
+    best_acc = 0.0
     for epoch in range(args.num_epoch):
-        # TODO: Training loop - iterate over train dataloader and update model weights
+
         print("EPOCH: %d" % (epoch))
-        train_loss, train_joi_acc, train_tok_acc = train_one_epoch(model, dataloaders[TRAIN], optimizer, scheduler, args.scheduler_type, args.device)
-        # TODO: Evaluation loop - calculate accuracy and save model weights.
-        val_loss, val_joi_acc, val_tok_acc = validation(model, dataloaders[DEV], args.device)
+
+        # Training loop - iterate over train dataloader and update model weights
+        train_loss, train_joi_acc, train_tok_acc = train_one_epoch(args, model, dataloaders[TRAIN], optimizer, scheduler)
+
+        # Evaluation loop - calculate accuracy and save model weights.
+        val_loss, val_joi_acc, val_tok_acc = validation(args, model, dataloaders[DEV])
 
         if args.scheduler_type == "step":
             scheduler.step()
@@ -153,9 +159,6 @@ def main(args):
                         }, step=epoch)
 
 
-    # TODO: Inference on test set
-
-
 def parse_args() -> Namespace:
     parser = ArgumentParser()
     parser.add_argument(
@@ -168,13 +171,13 @@ def parse_args() -> Namespace:
         "--cache_dir",
         type=Path,
         help="Directory to the preprocessed caches.",
-        default="./cache/slot/",
+        default="./cache/slot_2k/",
     )
     parser.add_argument(
         "--ckpt_dir",
         type=Path,
         help="Directory to save the model file.",
-        default="./ckpt/slot/",
+        default="./ckpt/slot_2k/",
     )
     parser.add_argument('--name', default='', type=str, help='Name for saving model')
 
@@ -183,13 +186,17 @@ def parse_args() -> Namespace:
 
     # model
     parser.add_argument("--hidden_size", type=int, default=512)
-    parser.add_argument("--num_cnn_layers", type=int, default=1)
+    parser.add_argument("--num_cnn_layers", type=int, default=2)
     parser.add_argument("--num_rnn_layers", type=int, default=2)
-    parser.add_argument("--dropout", type=float, default=0.1)
+    parser.add_argument("--dropout", type=float, default=0.2)
     parser.add_argument("--bidirectional", type=bool, default=True)
+    parser.add_argument("--no_crf", action='store_true')
 
     # optimizer
-    parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--lr", type=float, default=5e-4)
+
+    # loss
+    parser.add_argument('--grad_clip', default = 5., type=float, help='max gradient norm')
 
     # scheduler
     parser.add_argument('--scheduler_type', default=None, type=str,
@@ -199,7 +206,7 @@ def parse_args() -> Namespace:
     parser.add_argument("--patience", type=int, default=10)
 
     # data loader
-    parser.add_argument("--batch_size", type=int, default=64)
+    parser.add_argument("--batch_size", type=int, default=128)
 
     # training
     parser.add_argument(

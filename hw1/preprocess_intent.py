@@ -24,6 +24,7 @@ def build_vocab(
     words: Counter, vocab_size: int, output_dir: Path, glove_path: Path
 ) -> None:
     common_words = {w for w, _ in words.most_common(vocab_size)}
+    print({w: c for w, c in words.most_common(vocab_size)})
     vocab = Vocab(common_words)
     vocab_path = output_dir / "vocab.pkl"
     with open(vocab_path, "wb") as f:
@@ -84,6 +85,8 @@ def main(args):
             [token for instance in dataset for token in instance["text"].split()]
         )
 
+    print(words)
+    print(len(words))
     intent2idx = {tag: i for i, tag in enumerate(intents)}
     intent_tag_path = args.output_dir / "intent2idx.json"
     intent_tag_path.write_text(json.dumps(intent2idx, indent=2))
@@ -111,7 +114,7 @@ def parse_args() -> Namespace:
         "--output_dir",
         type=Path,
         help="Directory to save the processed file.",
-        default="./cache/intent/",
+        default="./cache/intent2/",
     )
     parser.add_argument(
         "--vocab_size",

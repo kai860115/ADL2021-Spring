@@ -59,7 +59,7 @@ class AverageMeter(object):
         self.val = val
         self.sum += val * n
         self.count += n
-        self.avg = self.sum / self.count
+        self.avg = self.sum / self.count + 1e-12
 
 class ClsMetrics(object):
     def __init__(self, eps = 1e-8):
@@ -89,14 +89,15 @@ class TagMetrics(object):
         self.tok_n = 0
         self.joi_n = 0
 
-    def update(self, target, pred):
-        l = len(target)
-        target_cat = torch.cat(target)
-        pred_cat = torch.cat(pred)
-        self.tok_cor += pred_cat.eq(target_cat.view_as(pred_cat)).sum().item()
-        self.joi_cor += torch.tensor([int(t.tolist() == p.tolist()) for t, p in zip(target, pred)]).sum().item()
-        self.tok_n += target_cat.size(0)
-        self.joi_n += l
+    def update(self, target, pred, mask):
+        mask = mask[:, :target.size(1)]
+        batch_cor = (target.eq(pred.view_as(target)) * mask).sum(-1)
+        seq_len = mask.sum(-1)
+        
+        self.tok_cor += batch_cor.sum().long().item()
+        self.joi_cor += batch_cor.eq(seq_len).sum().item()
+        self.tok_n += mask.sum().long().item()
+        self.joi_n += len(target)
     
     def cal(self):
         self.tok_acc = self.tok_cor / (self.tok_n + self.eps)

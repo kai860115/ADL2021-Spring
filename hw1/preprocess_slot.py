@@ -54,13 +54,13 @@ def parse_args() -> Namespace:
         "--output_dir",
         type=Path,
         help="Directory to save the processed file.",
-        default="./cache/slot/",
+        default="./cache/slot_2000/",
     )
     parser.add_argument(
         "--vocab_size",
         type=int,
         help="Number of token in the vocabulary",
-        default=10_000,
+        default=3_000,
     )
     args = parser.parse_args()
     return args

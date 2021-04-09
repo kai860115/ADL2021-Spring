@@ -39,6 +39,7 @@ def main(args):
         args.dropout,
         args.bidirectional,
         dataset.num_classes,
+        args.no_crf
     ).to(args.device)
     model.eval()
 
@@ -46,29 +47,37 @@ def main(args):
     # load weights into model
     model.load_state_dict(ckpt)
 
-    ids = []
-    labels = []
+    all_ids = []
+    all_tags = []
+    all_lens = []
 
-    # TODO: predict dataset
+    # predict dataset
     for batch in test_loader:
         batch['tokens'] = batch['tokens'].to(args.device)
-        batch['tags'] = [t.to(args.device) for t in batch['tags']]
-        output_dict = model(batch)
-        ids = ids + batch['id']
-        labels = labels + [p.tolist() for p in  output_dict['pred_labels']] 
+        batch['tags'] = batch['tags'].to(args.device)
+        batch['mask'] = batch['mask'].to(args.device)
 
-    # TODO: write prediction to file (args.pred_file)
+        with torch.no_grad():
+            output_dict = model(batch)
+
+        all_ids += batch['id']
+        all_tags += output_dict['pred_labels'].cpu().tolist()
+        all_lens += batch['mask'].sum(-1).long().cpu().tolist()
+
+    # write prediction to file (args.pred_file)
     if args.pred_file.parent:
         args.pred_file.parent.mkdir(parents=True, exist_ok=True)
+
     with open(args.pred_file, 'w') as f:
         f.write('id,tags\n')
-        for i, la in zip(ids, labels):
+        for i, tags, seq_len in zip(all_ids, all_tags, all_lens):
             f.write("%s," % (i))
-            for idx, t in enumerate(la):
-                if idx < len(la) - 1:
-                    f.write("%s " % (dataset.idx2label(t)))
+            for idx, tag in enumerate(tags):
+                if idx < seq_len - 1:
+                    f.write("%s " % (dataset.idx2label(tag)))
                 else:
-                    f.write("%s\n" % (dataset.idx2label(t)))
+                    f.write("%s\n" % (dataset.idx2label(tag)))
+                    break
 
 
 def parse_args() -> Namespace:
@@ -91,17 +100,18 @@ def parse_args() -> Namespace:
         help="Path to model checkpoint.",
         required=True
     )
-    parser.add_argument("--pred_file", type=Path, default="pred.slot.csv")
+    parser.add_argument("-p", "--pred_file", type=Path, default="pred.slot.csv")
 
     # data
-    parser.add_argument("--max_len", type=int, default=128)
+    parser.add_argument("--max_len", type=int, default=48)
 
     # model
     parser.add_argument("--hidden_size", type=int, default=512)
     parser.add_argument("--num_cnn_layers", type=int, default=1)
     parser.add_argument("--num_rnn_layers", type=int, default=2)
-    parser.add_argument("--dropout", type=float, default=0.1)
+    parser.add_argument("--dropout", type=float, default=0.2)
     parser.add_argument("--bidirectional", type=bool, default=True)
+    parser.add_argument("--no_crf", action='store_true')
 
     # data loader
     parser.add_argument("--batch_size", type=int, default=128)
