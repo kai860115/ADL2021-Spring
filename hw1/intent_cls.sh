@@ -1,1 +1,1 @@
-python3.8 test_intent.py --test_file "${1}" --ckpt_path ckpt/intent/best.pt --pred_file "${2}"
+python3.8 test_intent.py --test_file "${1}" --ckpt_path best-intent.pth --pred_file "${2}" --cache_dir ./cache/intent/ --att

@@ -1,0 +1,1 @@
+python test_slot.py --num_cnn_layers 1 --num_rnn_layers 2 --test_file "${1}" --pred_file "${2}" --ckpt_path ./best-slot.pth --cache_dir ./cache/slot/ --no_crf 

@@ -181,7 +181,7 @@ def parse_args() -> Namespace:
         "--cache_dir",
         type=Path,
         help="Directory to the preprocessed caches.",
-        default="./cache/intent/",
+        default="./cache/intent_all/",
     )
     parser.add_argument(
         "--ckpt_dir",
@@ -201,7 +201,7 @@ def parse_args() -> Namespace:
     parser.add_argument("--bidirectional", action="store_true")
     parser.add_argument("--att", action="store_true")
     parser.add_argument("--att_unit", type=int, default=128)
-    parser.add_argument("--att_hops", type=int, default=32)
+    parser.add_argument("--att_hops", type=int, default=8)
     parser.add_argument("--penal_coeff", type=float, default=1.)
     parser.add_argument("--aux_loss", action="store_true")
 
@@ -211,7 +211,7 @@ def parse_args() -> Namespace:
     parser.add_argument('--grad_clip', default = 5., type=float, help='max gradient norm')
 
     # scheduler
-    parser.add_argument('--scheduler_type', default=None, type=str,
+    parser.add_argument('--scheduler_type', default='onecycle', type=str,
                         choices=['reduce', 'step', 'onecycle', None],
                         help="type of scheduler (ReduceLROnPlateau, stepLR, OneCycleLR)")
     parser.add_argument("--step_size", type=int, default=15)

@@ -54,7 +54,7 @@ class SeqClassifier(torch.nn.Module):
         x, y = batch['text'], batch['intent'] # [batch_size, max_len]
 
         # compute mask
-        mask = (~x.gt(0)).float() # [batch_size, max_len]
+        mask = (x.gt(0)).float() # [batch_size, max_len]
 
         x = self.embed(x) # [batch_size, max_len, embed_dim]
 
@@ -101,7 +101,7 @@ class Attention(nn.Module):
         
     def forward(self, x, mask):
         mask = mask.unsqueeze(1) # [batch_size, 1, seq_len]
-        mask[mask == 1] = -float('inf')
+        mask[mask == 0] = -1e12
         A = self.w2(torch.tanh(self.w1(x))) # [batch, seq_len, att_hops]
         A = A.permute(0, 2, 1)
         A = A + mask
