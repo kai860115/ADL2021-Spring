@@ -198,7 +198,7 @@ def parse_args() -> Namespace:
     parser.add_argument("--hidden_size", type=int, default=256)
     parser.add_argument("--num_layers", type=int, default=2)
     parser.add_argument("--dropout", type=float, default=0.2)
-    parser.add_argument("--bidirectional", action="store_true")
+    parser.add_argument("--bidirectional", type=bool, default=True)
     parser.add_argument("--att", action="store_true")
     parser.add_argument("--att_unit", type=int, default=128)
     parser.add_argument("--att_hops", type=int, default=8)

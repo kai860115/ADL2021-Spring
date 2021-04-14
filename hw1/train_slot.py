@@ -171,13 +171,13 @@ def parse_args() -> Namespace:
         "--cache_dir",
         type=Path,
         help="Directory to the preprocessed caches.",
-        default="./cache/slot_2k/",
+        default="./cache/slot/",
     )
     parser.add_argument(
         "--ckpt_dir",
         type=Path,
         help="Directory to save the model file.",
-        default="./ckpt/slot_2k/",
+        default="./ckpt/slot/",
     )
     parser.add_argument('--name', default='', type=str, help='Name for saving model')
 
