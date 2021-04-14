@@ -26,7 +26,7 @@ def main(args):
 
     data = json.loads(args.test_file.read_text())
     dataset = SeqTagDataset(data, vocab, tag2idx, args.max_len)
-    # TODO: crecate DataLoader for test dataset
+    # create DataLoader for test dataset
     test_loader = DataLoader(dataset, args.batch_size, shuffle=False, collate_fn=dataset.collate_fn)
 
     embeddings = torch.load(args.cache_dir / "embeddings.pt")

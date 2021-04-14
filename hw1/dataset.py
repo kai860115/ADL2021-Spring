@@ -32,7 +32,7 @@ class SeqClsDataset(Dataset):
         return len(self.label_mapping)
 
     def collate_fn(self, samples: List[Dict]) -> Dict:
-        # TODO: implement collate_fn
+        # implement collate_fn
         samples.sort(key=lambda x: len(x['text'].split()), reverse=True)
         batch = {}
         batch['text'] = [s['text'].split() for s in samples]
@@ -90,7 +90,7 @@ class SeqTagDataset(Dataset):
         return len(self.label_mapping)
 
     def collate_fn(self, samples: List[Dict]) -> Dict:
-        # TODO: implement collate_fn
+        # implement collate_fn
         samples.sort(key=lambda x: len(x['tokens']), reverse=True)
         batch = {}
         batch['tokens'] = [s['tokens'] for s in samples]
