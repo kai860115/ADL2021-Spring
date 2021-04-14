@@ -84,5 +84,6 @@ python test_slot.py --test_file <test_file> --cache_dir <chche_dir> --ckpt_path 
 
 ### reproduce my result (Public: 0.82466, Private: 0.83065)
 ```shell
+bash download.sh
 bash slot_tag.sh
 ```
