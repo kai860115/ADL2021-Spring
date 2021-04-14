@@ -48,6 +48,7 @@ python train_intent.py --test_file <test_file> --cache_dir <chche_dir> --ckpt_pa
 
 ### reproduce my result (Public: 0.92311, Private: 0.91911)
 ```shell
+bash download.sh
 bash intent_cls.sh /path/to/test.json /path/to/pred.csv
 ```
 
