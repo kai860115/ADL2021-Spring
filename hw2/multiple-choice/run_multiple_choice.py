@@ -22,6 +22,7 @@ import logging
 import os
 import sys
 import json
+import random
 from dataclasses import dataclass, field
 from typing import Optional, Union
 
@@ -352,11 +353,39 @@ def main():
         max_seq_length = min(data_args.max_seq_length, tokenizer.model_max_length)
 
     # Preprocessing the datasets.
-    def preprocess_function(examples):
+    def preprocess_train_function(examples):
+        first_sentences = [[question] * 7 for question in examples[question_name]]
+        paragraphs_idx = [idx + random.sample(set(range(len(context_json))) - set(idx), 7 - len(idx)) for idx in examples[paragraphs_idx_name]]
+        second_sentences = [
+            [context_json[i] for i in idx] for idx in paragraphs_idx
+        ]
+
+        # Flatten out
+        first_sentences = sum(first_sentences, [])
+        second_sentences = sum(second_sentences, [])
+
+        # Tokenize
+        tokenized_examples = tokenizer(
+            first_sentences,
+            second_sentences,
+            truncation=True,
+            max_length=max_seq_length,
+            padding="max_length" if data_args.pad_to_max_length else False,
+        )
+        # Un-flatten
+        tokenized_inputs = {k: [v[i : i + 7] for i in range(0, len(v), 7)] for k, v in tokenized_examples.items()}
+        if relevant_name in examples.keys():
+            relevant = examples[relevant_name]
+            tokenized_inputs['label'] = [paragraphs.index(rel) for rel, paragraphs in zip(relevant, paragraphs_idx)]
+        else:
+            tokenized_inputs['label'] = [0 for _ in paragraphs_idx]
+        return tokenized_inputs
+
+    def preprocess_validation_function(examples):
         first_sentences = [[question] * 7 for question in examples[question_name]]
         paragraphs_idx = examples[paragraphs_idx_name]
         second_sentences = [
-            [context_json[i] for i in idx] + [''] * (7 - len(idx)) for idx in paragraphs_idx
+            [context_json[i] for i in idx] + [context_json[idx[0]]] * (7 - len(idx)) for idx in paragraphs_idx
         ]
 
         # Flatten out
@@ -387,7 +416,7 @@ def main():
         if data_args.max_train_samples is not None:
             train_dataset = train_dataset.select(range(data_args.max_train_samples))
         train_dataset = train_dataset.map(
-            preprocess_function,
+            preprocess_train_function,
             batched=True,
             num_proc=data_args.preprocessing_num_workers,
             load_from_cache_file=not data_args.overwrite_cache,
@@ -400,7 +429,7 @@ def main():
         if data_args.max_val_samples is not None:
             eval_dataset = eval_dataset.select(range(data_args.max_val_samples))
         eval_dataset = eval_dataset.map(
-            preprocess_function,
+            preprocess_validation_function,
             batched=True,
             num_proc=data_args.preprocessing_num_workers,
             load_from_cache_file=not data_args.overwrite_cache,
@@ -413,7 +442,7 @@ def main():
         if data_args.max_test_samples is not None:
             test_dataset = test_dataset.select(range(data_args.max_test_samples))
         test_dataset = test_dataset.map(
-            preprocess_function,
+            preprocess_validation_function,
             batched=True,
             num_proc=data_args.preprocessing_num_workers,
             load_from_cache_file=not data_args.overwrite_cache,
@@ -483,11 +512,12 @@ def main():
         preds = np.argmax(results.predictions, axis=1)
         output_json = {'data': []}
         for i, pred in enumerate(preds):
-            ex = dict()
-            ex['id'] = test_dataset['id'][i]
-            ex['question'] = test_dataset['question'][i]
-            ex['paragraphs'] = test_dataset['paragraphs'][i]
-            ex['relevant'] = test_dataset['paragraphs'][i][pred] if pred < len(test_dataset['paragraphs'][i]) else test_dataset['paragraphs'][0]
+            ex = {
+                'id': test_dataset['id'][i],
+                'question': test_dataset['question'][i],
+                'paragraphs': test_dataset['paragraphs'][i],
+                'relevant': test_dataset['paragraphs'][i][pred] if pred < len(test_dataset['paragraphs'][i]) else test_dataset['paragraphs'][0]
+            }
             if 'answers' in test_dataset.features:
                 ex['answers'] = test_dataset['answers'][i]
             output_json['data'].append(ex)
