@@ -46,6 +46,8 @@ from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 from transformers.trainer_utils import get_last_checkpoint, is_main_process
 from transformers.utils import check_min_version
 
+from tqdm import tqdm
+
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
 check_min_version("4.5.0")
@@ -223,6 +225,7 @@ class DataCollatorForMultipleChoice:
 
 
 def main():
+    # torch.autograd.set_detect_anomaly(True) 
     # See all possible arguments in src/transformers/training_args.py
     # or by passing the --help flag to this script.
     # We now keep distinct sets of args, for a cleaner separation of concerns.
@@ -508,18 +511,17 @@ def main():
     if training_args.do_predict:
         logger.info("*** Predict ***")
         results = trainer.predict(test_dataset)
-        print(results.metrics)
         preds = np.argmax(results.predictions, axis=1)
         output_json = {'data': []}
-        for i, pred in enumerate(preds):
+        for i, pred in enumerate(tqdm(preds)):
             ex = {
                 'id': test_dataset['id'][i],
                 'question': test_dataset['question'][i],
                 'paragraphs': test_dataset['paragraphs'][i],
                 'relevant': test_dataset['paragraphs'][i][pred] if pred < len(test_dataset['paragraphs'][i]) else test_dataset['paragraphs'][0]
             }
-            if 'answers' in test_dataset.features:
-                ex['answers'] = test_dataset['answers'][i]
+            # if 'answers' in test_dataset.features:
+            #     ex['answers'] = test_dataset['answers'][i]
             output_json['data'].append(ex)
         json.dump(output_json, open(data_args.output_file, 'w',encoding='utf-8'), indent=2, ensure_ascii=False)
         

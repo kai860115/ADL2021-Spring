@@ -12,9 +12,9 @@ from tqdm import tqdm
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_path', type=Path, help='Original data JSON file')
-    parser.add_argument('--prediction_path', type=Path, help='Model prediction JSON file')
-    parser.add_argument('--output_path', type=Path, help='Evaluation result save file')
+    parser.add_argument('data_path', type=Path, help='Original data JSON file')
+    parser.add_argument('prediction_path', type=Path, help='Model prediction JSON file')
+    parser.add_argument('output_path', type=Path, help='Evaluation result save file')
     args = parser.parse_args()
 
     return vars(args)

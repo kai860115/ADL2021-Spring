@@ -328,10 +328,10 @@ def main():
         column_names = datasets["validation"].column_names
     else:
         column_names = datasets["test"].column_names
-    question_column_name = "question" if "question" in column_names else column_names[1]
-    relevant_column_name = "relevant" if "relevant" in column_names else column_names[3]
-    answer_column_name = "answers" if "answers" in column_names else column_names[4]
-
+    question_column_name = "question"
+    relevant_column_name = "relevant"
+    answer_column_name = "answers"
+    
     # Padding side determines if we do (question|context) or (context|question).
     pad_on_right = tokenizer.padding_side == "right"
 
@@ -541,10 +541,11 @@ def main():
         )
 
         references = {}
-        for ex in examples:
-            references[ex['id']] = {
-                'answers': [a['text'] for a in ex['answers']] if 'answers' in ex.keys() else ['']
-            }
+        if 'answers' in examples.features:
+            for ex in examples:
+                references[ex['id']] = {
+                    'answers': [a['text'] for a in ex['answers']] 
+                }
 
         return EvalPrediction(predictions=predictions, label_ids=references)
 
@@ -619,13 +620,14 @@ def main():
     if training_args.do_predict:
         logger.info("*** Predict ***")
         results = trainer.predict(test_dataset, test_examples)
-        metrics = results.metrics
+        # metrics = results.metrics
 
-        max_test_samples = data_args.max_test_samples if data_args.max_test_samples is not None else len(test_dataset)
-        metrics["test_samples"] = min(max_test_samples, len(test_dataset))
+        # if metrics is not None:
+        #     max_test_samples = data_args.max_test_samples if data_args.max_test_samples is not None else len(test_dataset)
+        #     metrics["test_samples"] = min(max_test_samples, len(test_dataset))
 
-        trainer.log_metrics("test", metrics)
-        trainer.save_metrics("test", metrics)
+            # trainer.log_metrics("test", metrics)
+            # trainer.save_metrics("test", metrics)
 
 
 def _mp_fn(index):
