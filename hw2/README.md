@@ -110,4 +110,10 @@ mv <output_dir>/test_predictions.json <output_file>
 * **context_file**: path to the context file. EX: ./temp/context.json
 * **output_file**: Path to prediction file. EX: ./public_qa_pred.json or ./private_qa_pred.json
 
+## Reproduce my result 
+```bash
+bash download.sh
+bash ./run.sh /path/to/context.json /path/to/public.json /path/to/pred/public.json
+bash ./run.sh /path/to/context.json /path/to/private.json /path/to/pred/private.json
+```
 
