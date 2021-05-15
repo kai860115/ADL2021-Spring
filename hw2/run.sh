@@ -18,7 +18,7 @@ python question-answering/run_qa.py \
   --output_dir ./roberta-wwm-ext/qa/ \
   --pad_to_max_length \
   --test_file ./selection_pred.json \
-  --context_file ./dataset/context.json \
+  --context_file $1 \
   --do_predict \
   --max_seq_length 512 \
   --doc_stride 128 \
