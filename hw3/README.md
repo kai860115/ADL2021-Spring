@@ -6,23 +6,23 @@
 ## training
 ```
 python run_summarization.py \
-	--do_train \
-	--do_eval \
-	--model_name_or_path google/mt5-small \
+  --do_train \
+  --do_eval \
+  --model_name_or_path google/mt5-small \
   --train_file <train_file> \
   --validation_file <validation_file> \
   --output_dir <output_dir> \
-	--cache_dir ./cache \
-	--per_device_train_batch_size=4 \
-	--gradient_accumulation_steps=4 \
-	--per_device_eval_batch_size=4 \
-	--eval_accumulation_steps=4 \
-	--predict_with_generate \
-	--text_column maintext \
+  --cache_dir ./cache \
+  --per_device_train_batch_size=4 \
+  --gradient_accumulation_steps=4 \
+  --per_device_eval_batch_size=4 \
+  --eval_accumulation_steps=4 \
+  --predict_with_generate \
+  --text_column maintext \
   --summary_column title \
-	--adafactor \
-	--learning_rate 1e-3 \
-	--warmup_ratio 0.1 \
+  --adafactor \
+  --learning_rate 1e-3 \
+  --warmup_ratio 0.1 \
 ```
 * **train_file**: path to training data file. EX: ./data/train.jsonl
 * **validation_file**: path to validation data file. EX: ./data/public.jsonl
@@ -31,21 +31,21 @@ python run_summarization.py \
 ## testing
 ```
 python run_summarization.py \
-	--do_predict \
+  --do_predict \
   --model_name_or_path <model_name_or_path> \
   --test_file <test_file> \
   --output_file <output_file> \
   --output_dir <output_dir> \
-	--cache_dir ./cache \
-	--predict_with_generate \
-	--text_column maintext \
+  --cache_dir ./cache \
+  --predict_with_generate \
+  --text_column maintext \
   --summary_column title \
   --per_device_eval_batch_size 4 \
-	[--num_beams <num_beams>] \
-	[--do_sample] \
-	[--top_k <top_k>] \
-	[--top_p <top_p>] \
-	[--temperature <temperature>] \
+  [--num_beams <num_beams>] \
+  [--do_sample] \
+  [--top_k <top_k>] \
+  [--top_p <top_p>] \
+  [--temperature <temperature>] \
 ```
 * **model_name_or_path**: Path to pretrained model or model identifier from huggingface.co/models. EX: ./mt5-summarization
 * **test_file**: path to testing data file. EX: ./data/public.jsonl
