@@ -12,7 +12,6 @@ python run_summarization.py \
   --train_file <train_file> \
   --validation_file <validation_file> \
   --output_dir <output_dir> \
-  --cache_dir ./cache \
   --per_device_train_batch_size=4 \
   --gradient_accumulation_steps=4 \
   --per_device_eval_batch_size=4 \
@@ -36,7 +35,6 @@ python run_summarization.py \
   --test_file <test_file> \
   --output_file <output_file> \
   --output_dir <output_dir> \
-  --cache_dir ./cache \
   --predict_with_generate \
   --text_column maintext \
   --summary_column title \
